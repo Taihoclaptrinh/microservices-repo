@@ -1,0 +1,66 @@
+name: build-and-publish
+on:
+  pull_request:
+    paths: ["src/**", ".github/workflows/app.yml"]
+  push:
+    branches: [practice/devops-from-scratch]
+    paths: ["src/**", ".github/workflows/app.yml"]
+permissions:
+  contents: read
+jobs:
+  build-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [adservice, cartservice, checkoutservice, currencyservice, emailservice, frontend, loadgenerator, paymentservice, productcatalogservice, recommendationservice, shippingservice]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service == 'cartservice' && './src/cartservice/src' || format('./src/{0}', matrix.service) }}
+          file: ${{ matrix.service == 'cartservice' && './src/cartservice/src/Dockerfile' || format('./src/{0}/Dockerfile', matrix.service) }}
+          push: false
+  publish:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [adservice, cartservice, checkoutservice, currencyservice, emailservice, frontend, loadgenerator, paymentservice, productcatalogservice, recommendationservice, shippingservice]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service == 'cartservice' && './src/cartservice/src' || format('./src/{0}', matrix.service) }}
+          file: ${{ matrix.service == 'cartservice' && './src/cartservice/src/Dockerfile' || format('./src/{0}/Dockerfile', matrix.service) }}
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/online-boutique/${{ matrix.service }}:${{ github.sha }}
+  promote:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: sed -i 's/^  imageTag:.*/  imageTag: "${GITHUB_SHA}"/' deploy/helm/online-boutique/values.yaml
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/promote-${{ github.sha }}
+          base: practice/devops-from-scratch
+          title: "chore: promote Online Boutique images ${{ github.sha }}"
+          commit-message: "chore: promote images ${{ github.sha }}"
+          body: "Promotes the immutable image tags built from ${{ github.sha }}. Merge to sync Argo CD."
+          add-paths: deploy/helm/online-boutique/values.yaml

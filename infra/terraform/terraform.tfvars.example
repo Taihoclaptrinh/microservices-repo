@@ -1,0 +1,4 @@
+aws_region                          = "us-east-1"
+cluster_version                     = "1.37"
+github_repository                   = "<owner>/microservices-demo"
+cluster_endpoint_public_access_cidrs = ["<your-public-ip>/32"]

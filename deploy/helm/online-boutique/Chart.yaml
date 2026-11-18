@@ -1,0 +1,6 @@
+apiVersion: v2
+name: online-boutique
+description: Online Boutique core services for the AWS EKS practice environment
+type: application
+version: 0.1.0
+appVersion: "practice"

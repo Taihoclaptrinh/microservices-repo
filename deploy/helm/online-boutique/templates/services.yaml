@@ -1,0 +1,48 @@
+{{- range $name, $config := .Values.services }}
+{{- if gt (int $config.port) 0 }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  type: {{ if eq $name "frontend" }}{{ $.Values.frontend.serviceType }}{{ else }}ClusterIP{{ end }}
+  selector: { app: {{ $name }} }
+  ports:
+    - name: grpc
+      port: {{ if eq $name "frontend" }}80{{ else }}{{ $config.port }}{{ end }}
+      targetPort: app
+      protocol: TCP
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+spec:
+  replicas: {{ $config.replicas }}
+  selector:
+    matchLabels: { app: {{ $name }} }
+  template:
+    metadata:
+      labels: { app: {{ $name }} }
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: "{{ $.Values.global.awsAccountId }}.dkr.ecr.{{ $.Values.global.awsRegion }}.amazonaws.com/online-boutique/{{ $name }}:{{ $.Values.global.imageTag }}"
+          imagePullPolicy: IfNotPresent
+          {{- if gt (int $config.port) 0 }}
+          ports: [{ name: app, containerPort: {{ $config.port }} }]
+          readinessProbe: { tcpSocket: { port: app }, initialDelaySeconds: 5, periodSeconds: 10 }
+          livenessProbe: { tcpSocket: { port: app }, initialDelaySeconds: 15, periodSeconds: 20 }
+          {{- end }}
+          {{- if $config.env }}
+          env:
+            {{- range $key, $value := $config.env }}
+            - { name: {{ $key }}, value: {{ $value | quote }} }
+            {{- end }}
+          {{- end }}
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+---
+{{- end }}
